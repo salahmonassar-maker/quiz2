@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<title>نظام المعلم – إدارة الاختبارات</title>
+<style>
+body{
+    font-family: Tahoma;
+    direction: rtl;
+    background:#1b2735;
+    color:#fff;
+    margin:0;
+    padding:0;
+}
+.container{
+    max-width:1000px;
+    margin:auto;
+    background:#2c3e50;
+    border-radius:15px;
+    padding:20px;
+    margin-top:20px;
+    overflow:hidden;
+}
+h1,h2,h3{color:#ffdd57;}
+input,button,select{
+    padding:10px;
+    margin:6px 0;
+    border-radius:8px;
+    border:none;
+    font-size:16px;
+}
+button{
+    background:#f39c12;
+    cursor:pointer;
+}
+button:hover{background:#f1c40f;}
+.question{
+    background:#34495e;
+    padding:15px;
+    border-radius:10px;
+    margin:15px 0;
+}
+label{
+    display:block;
+    background:#3c5a72;
+    padding:10px;
+    margin:6px 0;
+    border-radius:8px;
+    cursor:pointer;
+}
+table{
+    width:100%;
+    border-collapse:collapse;
+    margin-top:15px;
+}
+th,td{
+    border:1px solid #fff;
+    padding:10px;
+    text-align:center;
+}
+.section{display:none; max-height:650px; overflow-y:auto;}
+.section.active{display:block;}
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1 id="dynamicTitle">نظام إدارة الاختبارات</h1>
+
+<h3>إنشاء موضوع جديد</h3>
+<input id="subjectInput" placeholder="اسم المادة">
+<input id="topicInput" placeholder="اسم الموضوع">
+<br>
+<button onclick="loadTopic()">تحميل / إنشاء الموضوع</button>
+
+<hr>
+
+<div id="config" class="section">
+<h3>إعدادات الاختبار</h3>
+<label>عدد الأسئلة لكل طالب:
+<input type="number" id="numQuestions" min="1" value="3"></label>
+<label>زمن الاختبار (بالدقائق):
+<input type="number" id="timeLimit" min="1" value="10"></label>
+</div>
+
+<hr>
+
+<div id="adminPanel" class="section">
+<h2>لوحة إدارة الأسئلة</h2>
+<input id="qText" style="width:90%" placeholder="نص السؤال"><br>
+<input id="o0" placeholder="الخيار الأول">
+<input id="o1" placeholder="الخيار الثاني">
+<input id="o2" placeholder="الخيار الثالث">
+<input id="o3" placeholder="الخيار الرابع"><br>
+<input id="correct" type="number" min="0" max="3" placeholder="رقم الإجابة الصحيحة (0-3)">
+<br><br>
+<button onclick="addQuestion()">➕ إضافة</button>
+<button onclick="updateQuestion()">✏️ تعديل</button>
+<button onclick="exportQuestions()">⬇️ تصدير</button>
+<input type="file" onchange="importQuestions(event)">
+<table id="questionsTable"></table>
+</div>
+
+<hr>
+
+<div id="final" class="section">
+<h2>الكشف النهائي لكل الطلاب</h2>
+<table id="resultsTable">
+<tr><th>الطالب</th><th>الدرجة</th></tr>
+</table>
+</div>
+
+</div>
+
+<script>
+// ==== متغيرات عامة ====
+let storageKey="";
+let allQuestions=[];
+let usedQuestions=[];
+let results=[];
+let editIndex=null;
+
+// ==== تحميل / إنشاء موضوع ====
+function loadTopic(){
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
+    if(subject==="" || topic===""){alert("أدخل المادة والموضوع"); return;}
+    storageKey = "quiz_"+subject+"_"+topic;
+    dynamicTitle.innerText = subject+" – "+topic;
+
+    allQuestions = JSON.parse(localStorage.getItem(storageKey))||[];
+    usedQuestions=[];
+    results=[];
+    resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
+
+    document.getElementById("config").classList.add("active");
+    document.getElementById("adminPanel").classList.add("active");
+    document.getElementById("final").classList.add("active");
+    renderQuestions();
+    localStorage.setItem("currentSubject", subject);
+    localStorage.setItem("currentTopic", topic);
+}
+
+// ==== إدارة الأسئلة ====
+function renderQuestions(){
+    questionsTable.innerHTML="<tr><th>#</th><th>السؤال</th><th>إجراء</th></tr>";
+    allQuestions.forEach((q,i)=>{
+        let r = questionsTable.insertRow();
+        r.insertCell(0).innerText = i+1;
+        r.insertCell(1).innerText = q.q;
+        r.insertCell(2).innerHTML=`<button onclick="loadQuestion(${i})">✏️</button>
+                                   <button onclick="deleteQuestion(${i})">❌</button>`;
+    });
+    localStorage.setItem(storageKey, JSON.stringify(allQuestions));
+}
+
+function addQuestion(){
+    allQuestions.push({q:qText.value, o:[o0.value,o1.value,o2.value,o3.value], a:+correct.value});
+    clearForm(); renderQuestions();
+}
+
+function loadQuestion(i){
+    editIndex=i;
+    qText.value = allQuestions[i].q;
+    [o0.value,o1.value,o2.value,o3.value] = allQuestions[i].o;
+    correct.value = allQuestions[i].a;
+}
+
+function updateQuestion(){
+    allQuestions[editIndex]={q:qText.value,o:[o0.value,o1.value,o2.value,o3.value],a:+correct.value};
+    editIndex=null;
+    clearForm(); renderQuestions();
+}
+
+function deleteQuestion(i){
+    if(confirm("حذف السؤال؟")){
+        allQuestions.splice(i,1);
+        renderQuestions();
+    }
+}
+
+function clearForm(){
+    qText.value=o0.value=o1.value=o2.value=o3.value=correct.value="";
+}
+
+// ==== استيراد / تصدير ====
+function exportQuestions(){
+    let a=document.createElement("a");
+    a.href=URL.createObjectURL(new Blob([JSON.stringify(allQuestions)],{type:"application/json"}));
+    a.download=storageKey+".json";
+    a.click();
+}
+
+function importQuestions(e){
+    let r = new FileReader();
+    r.onload=()=>{allQuestions = JSON.parse(r.result); renderQuestions();}
+    r.readAsText(e.target.files[0]);
+}
+
+// ==== كشف الطلاب ====
+function updateFinalTable(){
+    resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
+    results.forEach(r=>{
+        let row=resultsTable.insertRow();
+        row.insertCell(0).innerText=r.name;
+        row.insertCell(1).innerText=r.score;
+    });
+}
+
+// ==== حفظ الاختبار للطالب ====
+function saveForStudent(){
+    let data = {
+        questions: allQuestions,
+        numQuestions: +document.getElementById("numQuestions").value,
+        timeLimit: +document.getElementById("timeLimit").value
+    };
+    localStorage.setItem("quiz_default", JSON.stringify(data.questions));
+    localStorage.setItem("numQuestions", data.numQuestions);
+    localStorage.setItem("timeLimit", data.timeLimit);
+    alert("تم حفظ الاختبار للطالب، يمكنه فتح نسخة الطالب الآن");
+}
+
+// ==== توليد رابط الطالب ====
+function generateStudentLink(){
+    if(allQuestions.length===0){
+        alert("لا توجد أسئلة");
+        return;
+    }
+    let data = btoa(unescape(encodeURIComponent(JSON.stringify(allQuestions))));
+    let link = "student.html?" +
+        "sub=" + encodeURIComponent(subjectInput.value) +
+        "&topic=" + encodeURIComponent(topicInput.value) +
+        "&n=" + numQuestions.value +
+        "&t=" + timeLimit.value +
+        "&q=" + data;
+    prompt("رابط الاختبار للطلاب:", link);
+}
+
+// إضافة زر حفظ للطالب
+let btnSave = document.createElement("button");
+btnSave.innerText="💾 حفظ الاختبار للطالب";
+btnSave.onclick = saveForStudent;
+document.getElementById("adminPanel").appendChild(btnSave);
+
+// إضافة زر توليد رابط الطالب بعد زر الحفظ
+let btnLink = document.createElement("button");
+btnLink.innerText="🔗 توليد رابط الطالب";
+btnLink.onclick = generateStudentLink;
+document.getElementById("adminPanel").appendChild(btnLink);
+
+// عرض الأسئلة عند التحميل
+renderQuestions();
+</script>
+
+</body>
+</html>
