@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>اختبار الطالب</title>
+<title>نظام المعلم – إدارة الاختبارات</title>
 <style>
 body{
     font-family: Tahoma;
@@ -13,7 +13,7 @@ body{
     padding:0;
 }
 .container{
-    max-width:900px;
+    max-width:1000px;
     margin:auto;
     background:#2c3e50;
     border-radius:15px;
@@ -23,49 +23,72 @@ body{
 h1,h2,h3{color:#ffdd57;}
 input,button{
     padding:10px;
+    margin:6px 0;
     border-radius:8px;
     border:none;
-    margin:8px;
     font-size:16px;
 }
-button{
-    background:#f39c12;
-    cursor:pointer;
-}
+button{background:#f39c12;cursor:pointer;}
 button:hover{background:#f1c40f;}
 .question{
     background:#34495e;
-    padding:15px;
-    border-radius:10px;
-    margin:15px 0;
-}
-label{
-    display:block;
-    background:#3c5a72;
     padding:10px;
-    margin:6px 0;
     border-radius:8px;
-    cursor:pointer;
+    margin:10px 0;
 }
-#submitArea{margin-top:20px;}
+table{
+    width:100%;
+    border-collapse:collapse;
+}
+th,td{
+    border:1px solid #fff;
+    padding:8px;
+    text-align:center;
+}
 </style>
 </head>
 <body>
 
 <div class="container">
-<h1>اختبار تفاعلي – للطلاب</h1>
+<h1>نظام إدارة الاختبارات – المعلم</h1>
 
-<input id="studentName" placeholder="اسم الطالب"><br>
-<select id="subjectSelect">
-    <option value="">اختر المادة</option>
-</select>
-<select id="topicSelect">
-    <option value="">اختر الموضوع</option>
-</select><br><br>
-<button onclick="loadQuiz()">ابدأ الاختبار</button>
+<h3>إنشاء / اختيار موضوع</h3>
+<input id="subjectInput" placeholder="اسم المادة">
+<input id="topicInput" placeholder="اسم الموضوع">
+<br>
+<label>عدد الأسئلة لكل طالب:
+<input type="number" id="numQuestions" value="5"></label>
+<label>زمن الاختبار (دقائق):
+<input type="number" id="timeLimit" value="10"></label>
+<br><br>
+<button onclick="loadTopic()">تحميل / إنشاء الموضوع</button>
 
-<div id="quiz"></div>
-<div id="submitArea"></div>
+<hr>
+
+<h3>إضافة / تعديل سؤال</h3>
+<input id="qText" style="width:95%" placeholder="نص السؤال"><br>
+<input id="o0" placeholder="الخيار 1">
+<input id="o1" placeholder="الخيار 2">
+<input id="o2" placeholder="الخيار 3">
+<input id="o3" placeholder="الخيار 4"><br>
+<input id="correct" type="number" min="0" max="3" placeholder="رقم الإجابة الصحيحة (0-3)">
+<br>
+<button onclick="addQuestion()">➕ إضافة سؤال</button>
+<button onclick="updateQuestion()">✏️ تعديل السؤال</button>
+
+<hr>
+
+<h3>الأسئلة</h3>
+<table id="questionsTable">
+<tr><th>#</th><th>السؤال</th><th>حذف</th></tr>
+</table>
+
+<br>
+<!-- تصدير واستيراد الأسئلة -->
+<button onclick="exportQuestions()">⬇️ تصدير الأسئلة</button>
+<input type="file" id="importFile" style="display:inline-block" onchange="importQuestions(event)">
+<br><br>
+<button onclick="publishExam()">💾 نشر الاختبار للطلاب</button>
 </div>
 
 <!-- Firebase -->
@@ -81,114 +104,136 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
+// ===== المتغيرات =====
 let questions = [];
-let selected = [];
+let editIndex = null;
 let currentSubject = "";
 let currentTopic = "";
 
-// ===== تحميل المواد والمواضيع تلقائياً من Firestore =====
-function loadSubjects(){
-    db.collection("exams").get().then(snap=>{
-        let subjects = new Set();
-        snap.forEach(doc=>{
-            subjects.add(doc.data().subject);
-        });
-        subjects.forEach(s=>{
-            let opt = document.createElement("option");
-            opt.value = s; opt.innerText = s;
-            subjectSelect.appendChild(opt);
-        });
-    });
+// ==== تحميل / إنشاء موضوع ====
+function loadTopic(){
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
+    if(!subject){ alert("الرجاء إدخال اسم المادة"); return; }
+    if(!topic){ alert("الرجاء إدخال اسم الموضوع"); return; }
+    
+    currentSubject = subject;
+    currentTopic = topic;
+
+    // تحميل الأسئلة السابقة من localStorage
+    let key = "quiz_"+subject+"_"+topic;
+    questions = JSON.parse(localStorage.getItem(key)) || [];
+    render();
+    alert("تم تحميل / إنشاء الموضوع: "+subject+" – "+topic);
 }
 
-subjectSelect.addEventListener("change", ()=>{
-    let s = subjectSelect.value;
-    topicSelect.innerHTML = '<option value="">اختر الموضوع</option>';
-    if(!s) return;
-    db.collection("exams").where("subject","==",s).get().then(snap=>{
-        snap.forEach(doc=>{
-            let t = doc.data().topic;
-            let opt = document.createElement("option");
-            opt.value = t; opt.innerText = t;
-            topicSelect.appendChild(opt);
-        });
+// ==== إدارة الأسئلة ====
+function render(){
+    questionsTable.innerHTML="<tr><th>#</th><th>السؤال</th><th>حذف</th></tr>";
+    questions.forEach((q,i)=>{
+        let r = questionsTable.insertRow();
+        r.insertCell(0).innerText = i+1;
+        r.insertCell(1).innerText = q.q;
+        r.insertCell(2).innerHTML = `<button onclick="loadQuestion(${i})">✏️</button>
+                                     <button onclick="del(${i})">❌</button>`;
     });
-});
-
-// ===== بدء الاختبار =====
-function loadQuiz(){
-    let name = studentName.value.trim();
-    currentSubject = subjectSelect.value;
-    currentTopic = topicSelect.value;
-
-    if(!name){ alert("أدخل اسمك"); return; }
-    if(!currentSubject){ alert("اختر المادة"); return; }
-    if(!currentTopic){ alert("اختر الموضوع"); return; }
-
-    db.collection("exams").doc(currentSubject+"_"+currentTopic).get()
-    .then(doc=>{
-        if(!doc.exists){ alert("لا توجد أسئلة لهذا الموضوع"); return; }
-        questions = doc.data().questions || [];
-        let numQ = doc.data().numQuestions || questions.length;
-        shuffleArray(questions);
-        selected = questions.slice(0,numQ);
-        renderQuiz();
-    });
-}
-
-function renderQuiz(){
-    quiz.innerHTML = ""; submitArea.innerHTML = "";
-    selected.forEach((q,i)=>{
-        let div = document.createElement("div");
-        div.className="question";
-        div.innerHTML = `<h3>${q.q}</h3>`;
-        q.o.forEach((op,j)=>{
-            div.innerHTML += `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label>`;
-        });
-        quiz.appendChild(div);
-    });
-
-    let btn = document.createElement("button");
-    btn.innerText = "إنهاء وارسال الإجابة";
-    btn.onclick = submitQuiz;
-    submitArea.appendChild(btn);
-}
-
-// ===== إرسال الإجابة وحساب الدرجات =====
-function submitQuiz(){
-    let name = studentName.value.trim();
-    let score = 0;
-
-    selected.forEach((q,i)=>{
-        let r = document.querySelector(`input[name="q${i}"]:checked`);
-        if(r && +r.value === q.a) score++;
-    });
-
-    db.collection("results").add({
-        student: name,
-        subject: currentSubject,
-        topic: currentTopic,
-        score: score,
-        total: selected.length,
-        date: new Date()
-    }).then(()=>{
-        alert(`تم إرسال الإجابة! نتيجتك: ${score}/${selected.length}`);
-        location.reload();
-    }).catch(err=>{
-        alert("حدث خطأ: "+err);
-    });
-}
-
-// ===== خلط الأسئلة =====
-function shuffleArray(arr){
-    for(let i=arr.length-1;i>0;i--){
-        let j=Math.floor(Math.random()*(i+1));
-        [arr[i],arr[j]]=[arr[j],arr[i]];
+    // حفظ تلقائي في localStorage
+    if(currentSubject && currentTopic){
+        localStorage.setItem("quiz_"+currentSubject+"_"+currentTopic, JSON.stringify(questions));
     }
 }
 
-// تحميل المواد عند فتح الصفحة
-loadSubjects();
+function addQuestion(){
+    if(!qText.value || !o0.value || !o1.value || !o2.value || !o3.value || correct.value===""){
+        alert("الرجاء تعبئة كل الحقول قبل الإضافة");
+        return;
+    }
+    questions.push({
+        q: qText.value,
+        o: [o0.value,o1.value,o2.value,o3.value],
+        a: +correct.value
+    });
+    clearForm();
+    render();
+}
+
+function loadQuestion(i){
+    editIndex = i;
+    qText.value = questions[i].q;
+    [o0.value,o1.value,o2.value,o3.value] = questions[i].o;
+    correct.value = questions[i].a;
+}
+
+function updateQuestion(){
+    if(editIndex===null){ alert("اختر سؤالًا للتعديل أولاً"); return; }
+    questions[editIndex] = {
+        q: qText.value,
+        o: [o0.value,o1.value,o2.value,o3.value],
+        a: +correct.value
+    };
+    editIndex = null;
+    clearForm();
+    render();
+}
+
+function del(i){
+    if(confirm("حذف السؤال؟")){
+        questions.splice(i,1);
+        render();
+    }
+}
+
+function clearForm(){
+    qText.value=o0.value=o1.value=o2.value=o3.value=correct.value="";
+}
+
+// ==== تصدير واستيراد ====
+function exportQuestions(){
+    if(questions.length===0){ alert("لا توجد أسئلة لتصديرها!"); return; }
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(questions)], {type:"application/json"}));
+    a.download = currentSubject+"_"+currentTopic+"_questions.json";
+    a.click();
+}
+
+function importQuestions(e){
+    let file = e.target.files[0];
+    if(!file) return;
+    let reader = new FileReader();
+    reader.onload = () => {
+        try{
+            questions = JSON.parse(reader.result);
+            render();
+            alert("تم استيراد الأسئلة بنجاح!");
+        }catch(err){
+            alert("ملف غير صالح");
+        }
+    };
+    reader.readAsText(file);
+}
+
+// ==== نشر الاختبار ====
+function publishExam(){
+    if(!currentSubject){ alert("الرجاء إدخال اسم المادة"); return; }
+    if(!currentTopic){ alert("الرجاء إدخال اسم الموضوع"); return; }
+    if(questions.length===0){ alert("الرجاء إضافة سؤال واحد على الأقل"); return; }
+
+    let numQ = +numQuestions.value;
+    let time = +timeLimit.value;
+
+    db.collection("exams").doc(currentSubject+"_"+currentTopic).set({
+        subject: currentSubject,
+        topic: currentTopic,
+        questions,
+        numQuestions: numQ,
+        timeLimit: time,
+        createdAt: new Date()
+    }).then(()=>{
+        alert("✔️ تم نشر الاختبار بنجاح");
+    }).catch(err=>{
+        alert("حدث خطأ أثناء النشر: "+err);
+    });
+}
 </script>
 
 </body>
