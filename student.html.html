@@ -10,8 +10,6 @@ body{
     background:#1b2735;
     color:#fff;
     text-align:center;
-    margin:0;
-    padding:0;
 }
 .container{
     max-width:900px;
@@ -21,19 +19,7 @@ body{
     padding:20px;
     margin-top:20px;
 }
-h1,h2,h3{color:#ffdd57}
-input,button{
-    padding:10px;
-    border-radius:8px;
-    border:none;
-    margin:8px;
-    font-size:16px;
-}
-button{
-    background:#f39c12;
-    cursor:pointer;
-}
-button:hover{background:#f1c40f;}
+h1,h2{color:#ffdd57;}
 .question{
     background:#34495e;
     padding:15px;
@@ -43,104 +29,98 @@ button:hover{background:#f1c40f;}
 label{
     display:block;
     background:#3c5a72;
-    padding:10px;
-    margin:6px 0;
-    border-radius:8px;
+    padding:8px;
+    margin:5px 0;
+    border-radius:6px;
     cursor:pointer;
 }
-#submitArea{margin-top:20px;}
+button{
+    padding:10px 20px;
+    border:none;
+    border-radius:8px;
+    background:#f39c12;
+    font-size:16px;
+    cursor:pointer;
+}
 </style>
 </head>
 <body>
 
 <div class="container">
-
-<h1>اختبار تفاعلي – للطلاب</h1>
-
-<input id="studentName" placeholder="اسم الطالب"><br>
-<button onclick="startQuiz()">ابدأ الاختبار</button>
+<h1>الاختبار</h1>
+<input id="studentName" placeholder="اسم الطالب"><br><br>
+<button onclick="startQuiz()">ابدأ</button>
 
 <div id="quiz"></div>
-<div id="submitArea"></div>
-
 </div>
 
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
 <script>
-// ====== Google Form إعداد ======
-const FORM_URL =
-"https://docs.google.com/forms/d/e/1FAIpQLSepHivX2R8qwmb15faZw7-_ydhoEOGPb_AAo7jJGvFLaOYTRA/formResponse";
+const firebaseConfig = {
+  apiKey: "AIzaSyAC4PNyd-nolBmhhbn_AIWS5e1FaN4DoMI",
+  authDomain: "online-exam-3d750.firebaseapp.com",
+  projectId: "online-exam-3d750",
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
 
-const ENTRY_NAME   = "entry.216523096";
-const ENTRY_SCORE  = "entry.855843140";
-const ENTRY_SUB    = "entry.721931845";
-const ENTRY_TOPIC  = "entry.324479818";
+const params = new URLSearchParams(location.search);
+const subject = params.get("sub");
+const topic = params.get("topic");
 
-// ====== استدعاء الأسئلة من نسخة المعلم ======
-let questions = JSON.parse(localStorage.getItem("quiz_default")) || [];
+let exam, selected=[];
 
-// ====== متغيرات ======
-let selected = [];
-
-// ====== بدء الاختبار ======
-function startQuiz(){
-    let name = studentName.value.trim();
-    if(!name){alert("أدخل اسمك");return;}
-
-    document.getElementById("quiz").innerHTML="";
-    document.getElementById("submitArea").innerHTML="";
-
-    if(questions.length===0){
-        alert("لا توجد أسئلة متاحة، يرجى مراجعة المعلم");
-        return;
+db.collection("exams").doc(subject+"_"+topic).get().then(doc=>{
+    if(doc.exists){
+        exam = doc.data();
+    }else{
+        alert("لا يوجد اختبار");
     }
+});
 
-    shuffleArray(questions);
-    let numQ = +localStorage.getItem("numQuestions") || questions.length;
-    selected = questions.slice(0, numQ);
+function startQuiz(){
+    if(!exam){alert("الاختبار لم يُحمّل");return;}
+    let name=studentName.value.trim();
+    if(!name){alert("أدخل الاسم");return;}
 
+    let qs=[...exam.questions];
+    shuffle(qs);
+    selected = qs.slice(0, exam.numQuestions);
+
+    quiz.innerHTML="";
     selected.forEach((q,i)=>{
-        let div = document.createElement("div");
-        div.className = "question";
-        div.innerHTML = `<h3>${q.q}</h3>`;
+        let d=document.createElement("div");
+        d.className="question";
+        d.innerHTML=`<h3>${q.q}</h3>`;
         q.o.forEach((op,j)=>{
-            div.innerHTML += 
+            d.innerHTML+=
             `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label>`;
         });
-        document.getElementById("quiz").appendChild(div);
+        quiz.appendChild(d);
     });
 
     let btn=document.createElement("button");
-    btn.innerText="إنهاء وارسال للإجابة";
-    btn.onclick = sendToForm;
-    document.getElementById("submitArea").appendChild(btn);
+    btn.innerText="إنهاء";
+    btn.onclick=finish;
+    quiz.appendChild(btn);
 }
 
-// ====== إرسال للـ Google Form ======
-function sendToForm(){
-    let name = studentName.value.trim();
-    let score = 0;
-
+function finish(){
+    let score=0;
     selected.forEach((q,i)=>{
-        let r = document.querySelector(`input[name="q${i}"]:checked`);
-        if(r && +r.value === q.a) score++;
+        let r=document.querySelector(`input[name="q${i}"]:checked`);
+        if(r && +r.value===q.a) score++;
     });
-
-    let count = selected.length;
-    let paramString = 
-        `?${ENTRY_NAME}=${encodeURIComponent(name)}` +
-        `&${ENTRY_SCORE}=${encodeURIComponent(score+"/"+count)}` +
-        `&${ENTRY_SUB}=${encodeURIComponent(localStorage.getItem("currentSubject")||"عام")}` +
-        `&${ENTRY_TOPIC}=${encodeURIComponent(localStorage.getItem("currentTopic")||"عام")}`;
-
-    // فتح Google Form مسبق التعبئة في نافذة جديدة
-    window.open(FORM_URL+paramString, "_blank");
+    alert("درجتك: "+score+"/"+selected.length);
 }
 
-// ====== خلط الأسئلة ======
-function shuffleArray(arr){
-    for(let i=arr.length-1;i>0;i--){
-        let j = Math.floor(Math.random()*(i+1));
-        [arr[i],arr[j]] = [arr[j],arr[i]];
+function shuffle(a){
+    for(let i=a.length-1;i>0;i--){
+        let j=Math.floor(Math.random()*(i+1));
+        [a[i],a[j]]=[a[j],a[i]];
     }
 }
 </script>
