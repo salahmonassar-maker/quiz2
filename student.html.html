@@ -9,7 +9,8 @@ body{
     direction: rtl;
     background:#1b2735;
     color:#fff;
-    text-align:center;
+    margin:0;
+    padding:0;
 }
 .container{
     max-width:900px;
@@ -19,7 +20,19 @@ body{
     padding:20px;
     margin-top:20px;
 }
-h1,h2{color:#ffdd57;}
+h1,h2,h3{color:#ffdd57;}
+input,button{
+    padding:10px;
+    border-radius:8px;
+    border:none;
+    margin:8px;
+    font-size:16px;
+}
+button{
+    background:#f39c12;
+    cursor:pointer;
+}
+button:hover{background:#f1c40f;}
 .question{
     background:#34495e;
     padding:15px;
@@ -29,29 +42,30 @@ h1,h2{color:#ffdd57;}
 label{
     display:block;
     background:#3c5a72;
-    padding:8px;
-    margin:5px 0;
-    border-radius:6px;
-    cursor:pointer;
-}
-button{
-    padding:10px 20px;
-    border:none;
+    padding:10px;
+    margin:6px 0;
     border-radius:8px;
-    background:#f39c12;
-    font-size:16px;
     cursor:pointer;
 }
+#submitArea{margin-top:20px;}
 </style>
 </head>
 <body>
 
 <div class="container">
-<h1>الاختبار</h1>
-<input id="studentName" placeholder="اسم الطالب"><br><br>
-<button onclick="startQuiz()">ابدأ</button>
+<h1>اختبار تفاعلي – للطلاب</h1>
+
+<input id="studentName" placeholder="اسم الطالب"><br>
+<select id="subjectSelect">
+    <option value="">اختر المادة</option>
+</select>
+<select id="topicSelect">
+    <option value="">اختر الموضوع</option>
+</select><br><br>
+<button onclick="loadQuiz()">ابدأ الاختبار</button>
 
 <div id="quiz"></div>
+<div id="submitArea"></div>
 </div>
 
 <!-- Firebase -->
@@ -60,69 +74,121 @@ button{
 
 <script>
 const firebaseConfig = {
-  apiKey: "AIzaSyAC4PNyd-nolBmhhbn_AIWS5e1FaN4DoMI",
+  apiKey:"AIzaSyAC4PNyd-nolBmhhbn_AIWS5e1FaN4DoMI",
   authDomain: "online-exam-3d750.firebaseapp.com",
   projectId: "online-exam-3d750",
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-const params = new URLSearchParams(location.search);
-const subject = params.get("sub");
-const topic = params.get("topic");
+let questions = [];
+let selected = [];
+let currentSubject = "";
+let currentTopic = "";
 
-let exam, selected=[];
+// ===== تحميل المواد والمواضيع تلقائياً من Firestore =====
+function loadSubjects(){
+    db.collection("exams").get().then(snap=>{
+        let subjects = new Set();
+        snap.forEach(doc=>{
+            subjects.add(doc.data().subject);
+        });
+        subjects.forEach(s=>{
+            let opt = document.createElement("option");
+            opt.value = s; opt.innerText = s;
+            subjectSelect.appendChild(opt);
+        });
+    });
+}
 
-db.collection("exams").doc(subject+"_"+topic).get().then(doc=>{
-    if(doc.exists){
-        exam = doc.data();
-    }else{
-        alert("لا يوجد اختبار");
-    }
+subjectSelect.addEventListener("change", ()=>{
+    let s = subjectSelect.value;
+    topicSelect.innerHTML = '<option value="">اختر الموضوع</option>';
+    if(!s) return;
+    db.collection("exams").where("subject","==",s).get().then(snap=>{
+        snap.forEach(doc=>{
+            let t = doc.data().topic;
+            let opt = document.createElement("option");
+            opt.value = t; opt.innerText = t;
+            topicSelect.appendChild(opt);
+        });
+    });
 });
 
-function startQuiz(){
-    if(!exam){alert("الاختبار لم يُحمّل");return;}
-    let name=studentName.value.trim();
-    if(!name){alert("أدخل الاسم");return;}
+// ===== بدء الاختبار =====
+function loadQuiz(){
+    let name = studentName.value.trim();
+    currentSubject = subjectSelect.value;
+    currentTopic = topicSelect.value;
 
-    let qs=[...exam.questions];
-    shuffle(qs);
-    selected = qs.slice(0, exam.numQuestions);
+    if(!name){ alert("أدخل اسمك"); return; }
+    if(!currentSubject){ alert("اختر المادة"); return; }
+    if(!currentTopic){ alert("اختر الموضوع"); return; }
 
-    quiz.innerHTML="";
+    db.collection("exams").doc(currentSubject+"_"+currentTopic).get()
+    .then(doc=>{
+        if(!doc.exists){ alert("لا توجد أسئلة لهذا الموضوع"); return; }
+        questions = doc.data().questions || [];
+        let numQ = doc.data().numQuestions || questions.length;
+        shuffleArray(questions);
+        selected = questions.slice(0,numQ);
+        renderQuiz();
+    });
+}
+
+function renderQuiz(){
+    quiz.innerHTML = ""; submitArea.innerHTML = "";
     selected.forEach((q,i)=>{
-        let d=document.createElement("div");
-        d.className="question";
-        d.innerHTML=`<h3>${q.q}</h3>`;
+        let div = document.createElement("div");
+        div.className="question";
+        div.innerHTML = `<h3>${q.q}</h3>`;
         q.o.forEach((op,j)=>{
-            d.innerHTML+=
-            `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label>`;
+            div.innerHTML += `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label>`;
         });
-        quiz.appendChild(d);
+        quiz.appendChild(div);
     });
 
-    let btn=document.createElement("button");
-    btn.innerText="إنهاء";
-    btn.onclick=finish;
-    quiz.appendChild(btn);
+    let btn = document.createElement("button");
+    btn.innerText = "إنهاء وارسال الإجابة";
+    btn.onclick = submitQuiz;
+    submitArea.appendChild(btn);
 }
 
-function finish(){
-    let score=0;
+// ===== إرسال الإجابة وحساب الدرجات =====
+function submitQuiz(){
+    let name = studentName.value.trim();
+    let score = 0;
+
     selected.forEach((q,i)=>{
-        let r=document.querySelector(`input[name="q${i}"]:checked`);
-        if(r && +r.value===q.a) score++;
+        let r = document.querySelector(`input[name="q${i}"]:checked`);
+        if(r && +r.value === q.a) score++;
     });
-    alert("درجتك: "+score+"/"+selected.length);
+
+    db.collection("results").add({
+        student: name,
+        subject: currentSubject,
+        topic: currentTopic,
+        score: score,
+        total: selected.length,
+        date: new Date()
+    }).then(()=>{
+        alert(`تم إرسال الإجابة! نتيجتك: ${score}/${selected.length}`);
+        location.reload();
+    }).catch(err=>{
+        alert("حدث خطأ: "+err);
+    });
 }
 
-function shuffle(a){
-    for(let i=a.length-1;i>0;i--){
+// ===== خلط الأسئلة =====
+function shuffleArray(arr){
+    for(let i=arr.length-1;i>0;i--){
         let j=Math.floor(Math.random()*(i+1));
-        [a[i],a[j]]=[a[j],a[i]];
+        [arr[i],arr[j]]=[arr[j],arr[i]];
     }
 }
+
+// تحميل المواد عند فتح الصفحة
+loadSubjects();
 </script>
 
 </body>
