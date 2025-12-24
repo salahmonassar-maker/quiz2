@@ -80,6 +80,11 @@ th,td{
 </table>
 
 <br>
+<!-- أزرار تصدير واستيراد -->
+<button onclick="exportQuestions()">⬇️ تصدير الأسئلة</button>
+<input type="file" id="importFile" style="display:inline-block" onchange="importQuestions(event)">
+
+<br><br>
 <button onclick="publishExam()">💾 نشر الاختبار للطلاب</button>
 
 </div>
@@ -128,6 +133,33 @@ function clearForm(){
     qText.value=o0.value=o1.value=o2.value=o3.value=correct.value="";
 }
 
+// ==== تصدير الأسئلة ====
+function exportQuestions(){
+    if(questions.length===0){ alert("لا توجد أسئلة لتصديرها!"); return; }
+    let a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(questions)], {type:"application/json"}));
+    a.download = "questions.json";
+    a.click();
+}
+
+// ==== استيراد الأسئلة ====
+function importQuestions(e){
+    let file = e.target.files[0];
+    if(!file) return;
+    let reader = new FileReader();
+    reader.onload = () => {
+        try{
+            questions = JSON.parse(reader.result);
+            render();
+            alert("تم استيراد الأسئلة بنجاح!");
+        }catch(err){
+            alert("ملف غير صالح");
+        }
+    };
+    reader.readAsText(file);
+}
+
+// ==== نشر الاختبار إلى Firebase ====
 function publishExam(){
     let subject=subjectInput.value.trim();
     let topic=topicInput.value.trim();
@@ -145,6 +177,8 @@ function publishExam(){
         createdAt:new Date()
     }).then(()=>{
         alert("✔️ تم نشر الاختبار بنجاح");
+    }).catch(err=>{
+        alert("حدث خطأ أثناء النشر: "+err);
     });
 }
 </script>
