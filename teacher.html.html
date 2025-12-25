@@ -94,7 +94,6 @@ th,td{
 </table>
 
 <br>
-<!-- أزرار تصدير واستيراد -->
 <button onclick="exportQuestions()">⬇️ تصدير الأسئلة</button>
 <input type="file" id="importFile" onchange="importQuestions(event)">
 
@@ -108,7 +107,11 @@ th,td{
 <table id="resultsTable">
 <tr><th>الطالب</th><th>الدرجة</th></tr>
 </table>
+
 <button onclick="loadResults()">📥 تحميل النتائج</button>
+<button onclick="deleteResults()" style="background:#c0392b;color:#fff">
+🗑️ مسح كشف هذا الاختبار
+</button>
 <button onclick="window.print()">🖨️ طباعة الكشف</button>
 
 </div>
@@ -195,8 +198,7 @@ function publishTopic(){
     if(!subject || !topic){ alert("⚠️ أدخل اسم المادة والموضوع"); return; }
     db.collection("topics").doc(subject+"_"+topic).set({
         subject, topic, createdAt:new Date()
-    }).then(()=>alert("✔️ تم نشر الموضوع بنجاح!"))
-    .catch(err=>alert("حدث خطأ أثناء نشر الموضوع: "+err));
+    }).then(()=>alert("✔️ تم نشر الموضوع بنجاح!"));
 }
 
 // ==== نشر الاختبار ====
@@ -211,11 +213,10 @@ function publishExam(){
         numQuestions:+numQuestions.value,
         timeLimit:+timeLimit.value,
         createdAt:new Date()
-    }).then(()=>alert("✔️ تم نشر الاختبار بنجاح!"))
-    .catch(err=>alert("حدث خطأ أثناء النشر: "+err));
+    }).then(()=>alert("✔️ تم نشر الاختبار بنجاح!"));
 }
 
-// ==== عرض نتائج الطلاب ====
+// ==== تحميل نتائج الطلاب ====
 function loadResults(){
     resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
     let subject = subjectInput.value.trim();
@@ -233,7 +234,38 @@ function loadResults(){
               row.insertCell(0).innerText = r.student;
               row.insertCell(1).innerText = r.score + "/" + r.total;
           });
-      }).catch(err=>alert("حدث خطأ أثناء تحميل النتائج: "+err));
+      });
+}
+
+// ==== مسح كشف الطلاب (الإضافة الوحيدة) ====
+async function deleteResults(){
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
+
+    if(!subject || !topic){
+        alert("⚠️ أدخل اسم المادة والموضوع أولاً");
+        return;
+    }
+
+    const ok = confirm("⚠️ سيتم حذف كشف نتائج الطلاب لهذا الاختبار فقط.\nهل أنت متأكد؟");
+    if(!ok) return;
+
+    const snapshot = await db.collection("results")
+        .where("subject","==",subject)
+        .where("topic","==",topic)
+        .get();
+
+    if(snapshot.empty){
+        alert("لا توجد نتائج لحذفها");
+        return;
+    }
+
+    const batch = db.batch();
+    snapshot.forEach(doc => batch.delete(doc.ref));
+    await batch.commit();
+
+    resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
+    alert("✅ تم مسح كشف الطلاب بنجاح");
 }
 
 renderQuestions();
