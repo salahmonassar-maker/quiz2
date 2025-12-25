@@ -81,16 +81,24 @@ async function loadExam(){
     const topic = document.getElementById("topicInput").value.trim();
     if(!studentName || !subject || !topic){ alert("⚠️ أدخل كل المعلومات"); return; }
 
-    const docRef = db.collection("exams").doc(subject+"_"+topic);
-    const docSnap = await docRef.get();
+    try {
+        const docRef = db.collection("exams").doc(subject+"_"+topic);
+        const docSnap = await docRef.get();
 
-    if(!docSnap.exists){
-        alert("❌ لا يوجد اختبار لهذا الموضوع");
-        return;
+        if(!docSnap.exists){
+            alert("❌ لا يوجد اختبار لهذا الموضوع");
+            return;
+        }
+
+        const examData = docSnap.data();
+        const totalQuestions = examData.numQuestions || examData.questions.length;
+
+        // اختيار الأسئلة حسب ما فعله المعلم
+        examQuestions = examData.questions.slice(0, totalQuestions);
+        renderExam();
+    } catch(err){
+        alert("❌ حدث خطأ أثناء تحميل الاختبار: " + err.message);
     }
-
-    examQuestions = docSnap.data().questions;
-    renderExam();
 }
 
 function renderExam(){
@@ -133,8 +141,30 @@ async function submitExam(){
             total: examQuestions.length,
             submittedAt: new Date()
         });
-        document.getElementById("resultMsg").innerText = `✅ تم إرسال الاختبار. درجتك: ${score} / ${examQuestions.length}`;
+
+        // عرض الدرجة فقط + زر عرض الإجابات الصحيحة
+        document.getElementById("resultMsg").innerHTML = `
+✅ تم إرسال الاختبار. درجتك: ${score} / ${examQuestions.length}
+<br><button id="showAnswersBtn">عرض الإجابات الصحيحة</button>`;
+        
         document.getElementById("submitBtn").style.display = "none";
+
+        document.getElementById("showAnswersBtn").onclick = function() {
+            const container = document.getElementById("examContainer");
+            examQuestions.forEach((q,i)=>{
+                const selected = document.querySelector(`input[name="q${i}"]:checked`);
+                const userAnswer = selected ? q.o[parseInt(selected.value)] : "لم يتم اختيار إجابة";
+                const correctAnswer = q.o[q.a];
+                const div = document.createElement("div");
+                div.className = "question";
+                div.innerHTML = `<strong>سؤال ${i+1}:</strong> ${q.q}<br>
+                إجابتك: ${userAnswer} <br>
+                الإجابة الصحيحة: ${correctAnswer}`;
+                container.appendChild(div);
+            });
+            this.style.display = "none"; // إخفاء الزر بعد العرض
+        };
+
     } catch(err){
         alert("❌ حدث خطأ أثناء إرسال النتائج: " + err.message);
     }
