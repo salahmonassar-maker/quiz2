@@ -45,6 +45,15 @@ th,td{
     padding:8px;
     text-align:center;
 }
+
+/* CSS للطباعة */
+@media print {
+    button,input,select { display:none; }
+    body { background:#fff; color:#000; }
+    .container { background:#fff; width:100%; }
+    .question { background:#eee; color:#000; }
+    td,th { background:#eee; color:#000; border:1px solid #000; }
+}
 </style>
 </head>
 <body>
@@ -52,20 +61,21 @@ th,td{
 <div class="container">
 <h1>نظام إدارة الاختبارات – المعلم</h1>
 
-<h3>إنشاء / اختيار موضوع</h3>
 <input id="subjectInput" placeholder="اسم المادة">
-<input id="topicInput" placeholder="اسم الموضوع">
-<br>
-<label>عدد الأسئلة لكل طالب:
+<input id="topicInput" placeholder="اسم الموضوع"><br>
+
+<label>عدد الأسئلة:
 <input type="number" id="numQuestions" value="5"></label>
+
 <label>زمن الاختبار (دقائق):
 <input type="number" id="timeLimit" value="10"></label>
+
 <br><br>
-<button onclick="loadTopic()">تحميل / إنشاء الموضوع</button>
+<button onclick="publishTopic()">📢 نشر الموضوع</button>
 
 <hr>
 
-<h3>إضافة / تعديل سؤال</h3>
+<h3>إضافة سؤال</h3>
 <input id="qText" style="width:95%" placeholder="نص السؤال"><br>
 <input id="o0" placeholder="الخيار 1">
 <input id="o1" placeholder="الخيار 2">
@@ -80,15 +90,27 @@ th,td{
 
 <h3>الأسئلة</h3>
 <table id="questionsTable">
-<tr><th>#</th><th>السؤال</th><th>حذف</th></tr>
+<tr><th>#</th><th>السؤال</th><th>الإجراءات</th></tr>
 </table>
 
 <br>
-<!-- تصدير واستيراد الأسئلة -->
+<!-- أزرار تصدير واستيراد -->
 <button onclick="exportQuestions()">⬇️ تصدير الأسئلة</button>
-<input type="file" id="importFile" style="display:inline-block" onchange="importQuestions(event)">
+<input type="file" id="importFile" onchange="importQuestions(event)">
+
 <br><br>
 <button onclick="publishExam()">💾 نشر الاختبار للطلاب</button>
+<button onclick="window.print()">🖨️ طباعة الأسئلة</button>
+
+<hr>
+
+<h2>كشف نتائج الطلاب</h2>
+<table id="resultsTable">
+<tr><th>الطالب</th><th>الدرجة</th></tr>
+</table>
+<button onclick="loadResults()">📥 تحميل النتائج</button>
+<button onclick="window.print()">🖨️ طباعة الكشف</button>
+
 </div>
 
 <!-- Firebase -->
@@ -104,82 +126,44 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-// ===== المتغيرات =====
 let questions = [];
 let editIndex = null;
-let currentSubject = "";
-let currentTopic = "";
-
-// ==== تحميل / إنشاء موضوع ====
-function loadTopic(){
-    let subject = subjectInput.value.trim();
-    let topic = topicInput.value.trim();
-    if(!subject){ alert("الرجاء إدخال اسم المادة"); return; }
-    if(!topic){ alert("الرجاء إدخال اسم الموضوع"); return; }
-    
-    currentSubject = subject;
-    currentTopic = topic;
-
-    // تحميل الأسئلة السابقة من localStorage
-    let key = "quiz_"+subject+"_"+topic;
-    questions = JSON.parse(localStorage.getItem(key)) || [];
-    render();
-    alert("تم تحميل / إنشاء الموضوع: "+subject+" – "+topic);
-}
+const questionsTable = document.getElementById("questionsTable");
+const resultsTable = document.getElementById("resultsTable");
 
 // ==== إدارة الأسئلة ====
-function render(){
-    questionsTable.innerHTML="<tr><th>#</th><th>السؤال</th><th>حذف</th></tr>";
-    questions.forEach((q,i)=>{
-        let r = questionsTable.insertRow();
-        r.insertCell(0).innerText = i+1;
-        r.insertCell(1).innerText = q.q;
-        r.insertCell(2).innerHTML = `<button onclick="loadQuestion(${i})">✏️</button>
-                                     <button onclick="del(${i})">❌</button>`;
-    });
-    // حفظ تلقائي في localStorage
-    if(currentSubject && currentTopic){
-        localStorage.setItem("quiz_"+currentSubject+"_"+currentTopic, JSON.stringify(questions));
-    }
-}
-
 function addQuestion(){
-    if(!qText.value || !o0.value || !o1.value || !o2.value || !o3.value || correct.value===""){
-        alert("الرجاء تعبئة كل الحقول قبل الإضافة");
-        return;
-    }
-    questions.push({
-        q: qText.value,
-        o: [o0.value,o1.value,o2.value,o3.value],
-        a: +correct.value
-    });
-    clearForm();
-    render();
-}
-
-function loadQuestion(i){
-    editIndex = i;
-    qText.value = questions[i].q;
-    [o0.value,o1.value,o2.value,o3.value] = questions[i].o;
-    correct.value = questions[i].a;
+    questions.push({q:qText.value, o:[o0.value,o1.value,o2.value,o3.value], a:+correct.value});
+    clearForm(); renderQuestions();
 }
 
 function updateQuestion(){
-    if(editIndex===null){ alert("اختر سؤالًا للتعديل أولاً"); return; }
-    questions[editIndex] = {
-        q: qText.value,
-        o: [o0.value,o1.value,o2.value,o3.value],
-        a: +correct.value
-    };
-    editIndex = null;
-    clearForm();
-    render();
+    if(editIndex===null) return;
+    questions[editIndex] = {q:qText.value, o:[o0.value,o1.value,o2.value,o3.value], a:+correct.value};
+    editIndex=null; clearForm(); renderQuestions();
 }
 
-function del(i){
-    if(confirm("حذف السؤال؟")){
-        questions.splice(i,1);
-        render();
+function renderQuestions(){
+    questionsTable.innerHTML="<tr><th>#</th><th>السؤال</th><th>الإجراءات</th></tr>";
+    questions.forEach((q,i)=>{
+        let r=questionsTable.insertRow();
+        r.insertCell(0).innerText=i+1;
+        r.insertCell(1).innerText=q.q;
+        r.insertCell(2).innerHTML=`<button onclick="editQuestion(${i})">✏️</button>
+                                   <button onclick="deleteQuestion(${i})">❌</button>`;
+    });
+}
+
+function editQuestion(i){
+    editIndex=i;
+    qText.value=questions[i].q;
+    [o0.value,o1.value,o2.value,o3.value]=questions[i].o;
+    correct.value=questions[i].a;
+}
+
+function deleteQuestion(i){
+    if(confirm("هل تريد حذف هذا السؤال؟")){
+        questions.splice(i,1); renderQuestions();
     }
 }
 
@@ -189,51 +173,70 @@ function clearForm(){
 
 // ==== تصدير واستيراد ====
 function exportQuestions(){
-    if(questions.length===0){ alert("لا توجد أسئلة لتصديرها!"); return; }
-    let a = document.createElement("a");
+    if(questions.length===0){ alert("لا توجد أسئلة لتصديرها"); return; }
+    let a=document.createElement("a");
     a.href = URL.createObjectURL(new Blob([JSON.stringify(questions)], {type:"application/json"}));
-    a.download = currentSubject+"_"+currentTopic+"_questions.json";
-    a.click();
+    a.download="questions.json"; a.click();
 }
 
 function importQuestions(e){
-    let file = e.target.files[0];
-    if(!file) return;
-    let reader = new FileReader();
-    reader.onload = () => {
-        try{
-            questions = JSON.parse(reader.result);
-            render();
-            alert("تم استيراد الأسئلة بنجاح!");
-        }catch(err){
-            alert("ملف غير صالح");
-        }
-    };
-    reader.readAsText(file);
+    let file=e.target.files[0]; if(!file) return;
+    let reader=new FileReader();
+    reader.onload=()=>{
+        try{questions=JSON.parse(reader.result); renderQuestions(); alert("تم استيراد الأسئلة بنجاح!");}
+        catch(err){alert("ملف غير صالح");}
+    }; reader.readAsText(file);
+}
+
+// ==== نشر الموضوع ====
+function publishTopic(){
+    let subject=subjectInput.value.trim();
+    let topic=topicInput.value.trim();
+    if(!subject || !topic){ alert("⚠️ أدخل اسم المادة والموضوع"); return; }
+    db.collection("topics").doc(subject+"_"+topic).set({
+        subject, topic, createdAt:new Date()
+    }).then(()=>alert("✔️ تم نشر الموضوع بنجاح!"))
+    .catch(err=>alert("حدث خطأ أثناء نشر الموضوع: "+err));
 }
 
 // ==== نشر الاختبار ====
 function publishExam(){
-    if(!currentSubject){ alert("الرجاء إدخال اسم المادة"); return; }
-    if(!currentTopic){ alert("الرجاء إدخال اسم الموضوع"); return; }
-    if(questions.length===0){ alert("الرجاء إضافة سؤال واحد على الأقل"); return; }
-
-    let numQ = +numQuestions.value;
-    let time = +timeLimit.value;
-
-    db.collection("exams").doc(currentSubject+"_"+currentTopic).set({
-        subject: currentSubject,
-        topic: currentTopic,
-        questions,
-        numQuestions: numQ,
-        timeLimit: time,
-        createdAt: new Date()
-    }).then(()=>{
-        alert("✔️ تم نشر الاختبار بنجاح");
-    }).catch(err=>{
-        alert("حدث خطأ أثناء النشر: "+err);
-    });
+    let subject=subjectInput.value.trim();
+    let topic=topicInput.value.trim();
+    if(!subject||!topic||questions.length===0){
+        alert("⚠️ البيانات ناقصة أو لا توجد أسئلة"); return;
+    }
+    db.collection("exams").doc(subject+"_"+topic).set({
+        subject, topic, questions,
+        numQuestions:+numQuestions.value,
+        timeLimit:+timeLimit.value,
+        createdAt:new Date()
+    }).then(()=>alert("✔️ تم نشر الاختبار بنجاح!"))
+    .catch(err=>alert("حدث خطأ أثناء النشر: "+err));
 }
+
+// ==== عرض نتائج الطلاب ====
+function loadResults(){
+    resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
+    if(!subject || !topic){ alert("أدخل المادة والموضوع أولاً"); return; }
+
+    db.collection("results")
+      .where("subject","==",subject)
+      .where("topic","==",topic)
+      .get()
+      .then(snapshot=>{
+          snapshot.forEach(doc=>{
+              let r = doc.data();
+              let row = resultsTable.insertRow();
+              row.insertCell(0).innerText = r.student;
+              row.insertCell(1).innerText = r.score + "/" + r.total;
+          });
+      }).catch(err=>alert("حدث خطأ أثناء تحميل النتائج: "+err));
+}
+
+renderQuestions();
 </script>
 
 </body>
