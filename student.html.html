@@ -2,7 +2,7 @@
 <html lang="ar">
 <head>
 <meta charset="UTF-8">
-<title>اختبار الطالب</title>
+<title>نظام الطالب – حل الاختبارات</title>
 <style>
 body{
     font-family: Tahoma;
@@ -13,7 +13,7 @@ body{
     padding:0;
 }
 .container{
-    max-width:900px;
+    max-width:800px;
     margin:auto;
     background:#2c3e50;
     border-radius:15px;
@@ -21,59 +21,45 @@ body{
     margin-top:20px;
 }
 h1,h2,h3{color:#ffdd57;}
-input,button,select{
-    padding:10px;
-    border-radius:8px;
-    border:none;
-    margin:8px;
-    font-size:16px;
-}
-button{
-    background:#f39c12;
-    cursor:pointer;
-}
-button:hover{background:#f1c40f;}
-.question{
-    background:#34495e;
-    padding:15px;
-    border-radius:10px;
-    margin:15px 0;
-}
-label{
-    display:block;
-    background:#3c5a72;
+input,button{
     padding:10px;
     margin:6px 0;
     border-radius:8px;
-    cursor:pointer;
+    border:none;
+    font-size:16px;
 }
-#submitArea{margin-top:20px;}
-.message{
-    color:#f1c40f;
-    font-weight:bold;
+button{background:#f39c12;cursor:pointer;}
+button:hover{background:#f1c40f;}
+.question{
+    background:#34495e;
+    padding:10px;
+    border-radius:8px;
+    margin:10px 0;
 }
+label{display:block; margin:5px 0;}
 </style>
 </head>
 <body>
 
 <div class="container">
-<h1>اختبار تفاعلي – للطلاب</h1>
+<h1>نظام الطالب – حل الاختبارات</h1>
 
-<input id="studentName" placeholder="اسم الطالب"><br>
-<select id="subjectSelect">
-    <option value="">اختر المادة</option>
-</select>
-<select id="topicSelect">
-    <option value="">اختر الموضوع</option>
-</select><br>
-<span id="message" class="message"></span><br>
-<button onclick="loadQuiz()">ابدأ الاختبار</button>
+<h3>معلومات الطالب</h3>
+<input id="studentName" placeholder="أدخل اسمك"><br>
+<input id="subjectInput" placeholder="اسم المادة">
+<input id="topicInput" placeholder="اسم الموضوع"><br>
+<button onclick="loadExam()">تحميل الاختبار</button>
 
-<div id="quiz"></div>
-<div id="submitArea"></div>
+<hr>
+
+<div id="examContainer"></div>
+
+<button id="submitBtn" style="display:none" onclick="submitExam()">📤 إرسال الاختبار</button>
+
+<div id="resultMsg"></div>
+
 </div>
 
-<!-- Firebase -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
@@ -86,152 +72,73 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
-let questions = [];
-let selected = [];
-let currentSubject = "";
-let currentTopic = "";
+let examQuestions = [];
 
-// ===== عناصر HTML =====
-const subjectSelect = document.getElementById("subjectSelect");
-const topicSelect = document.getElementById("topicSelect");
-const message = document.getElementById("message");
-const quiz = document.getElementById("quiz");
-const submitArea = document.getElementById("submitArea");
-const studentName = document.getElementById("studentName");
+// ==== تحميل الاختبار ====
+async function loadExam(){
+    const studentName = document.getElementById("studentName").value.trim();
+    const subject = document.getElementById("subjectInput").value.trim();
+    const topic = document.getElementById("topicInput").value.trim();
+    if(!studentName || !subject || !topic){ alert("⚠️ أدخل كل المعلومات"); return; }
 
-// ===== تحميل المواد تلقائياً =====
-function loadSubjects(){
-    db.collection("exams").get().then(snap=>{
-        let subjects = new Set();
-        snap.forEach(doc=>{
-            subjects.add(doc.data().subject);
-        });
-        if(subjects.size===0){
-            message.innerText = "⚠️ لا توجد مواد متاحة حالياً";
-            return;
-        }
-        message.innerText = "";
-        subjects.forEach(s=>{
-            let opt = document.createElement("option");
-            opt.value = s; opt.innerText = s;
-            subjectSelect.appendChild(opt);
-        });
-    });
+    const docRef = db.collection("exams").doc(subject+"_"+topic);
+    const docSnap = await docRef.get();
+
+    if(!docSnap.exists){
+        alert("❌ لا يوجد اختبار لهذا الموضوع");
+        return;
+    }
+
+    examQuestions = docSnap.data().questions;
+    renderExam();
 }
 
-subjectSelect.addEventListener("change", ()=>{
-    let s = subjectSelect.value;
-    topicSelect.innerHTML = '<option value="">اختر الموضوع</option>';
-    if(!s) return;
-    db.collection("exams").where("subject","==",s).get().then(snap=>{
-        if(snap.empty){
-            message.innerText = "⚠️ لا توجد موضوعات لهذه المادة";
-            return;
-        }
-        message.innerText = "";
-        snap.forEach(doc=>{
-            let t = doc.data().topic;
-            let opt = document.createElement("option");
-            opt.value = t; opt.innerText = t;
-            topicSelect.appendChild(opt);
-        });
+function renderExam(){
+    const container = document.getElementById("examContainer");
+    container.innerHTML = "";
+    examQuestions.forEach((q,i)=>{
+        const div = document.createElement("div");
+        div.className = "question";
+        div.innerHTML = `<strong>سؤال ${i+1}:</strong> ${q.q}<br>
+            <label><input type="radio" name="q${i}" value="0"> ${q.o[0]}</label>
+            <label><input type="radio" name="q${i}" value="1"> ${q.o[1]}</label>
+            <label><input type="radio" name="q${i}" value="2"> ${q.o[2]}</label>
+            <label><input type="radio" name="q${i}" value="3"> ${q.o[3]}</label>`;
+        container.appendChild(div);
     });
-});
-
-// ===== بدء الاختبار =====
-function loadQuiz(){
-    let name = studentName.value.trim();
-    currentSubject = subjectSelect.value;
-    currentTopic = topicSelect.value;
-
-    if(!name){ alert("أدخل اسمك"); return; }
-    if(!currentSubject){ alert("اختر المادة"); return; }
-    if(!currentTopic){ alert("اختر الموضوع"); return; }
-
-    db.collection("exams").doc(currentSubject+"_"+currentTopic).get()
-    .then(doc=>{
-        if(!doc.exists){ alert("لا توجد أسئلة لهذا الموضوع"); return; }
-        questions = doc.data().questions || [];
-        let numQ = doc.data().numQuestions || questions.length;
-        shuffleArray(questions);
-        selected = questions.slice(0,numQ);
-        renderQuiz();
-    });
+    document.getElementById("submitBtn").style.display = "block";
 }
 
-function renderQuiz(){
-    quiz.innerHTML = ""; submitArea.innerHTML = "";
-    selected.forEach((q,i)=>{
-        let div = document.createElement("div");
-        div.className="question";
-        div.innerHTML = `<h3>${q.q}</h3>`;
-        q.o.forEach((op,j)=>{
-            div.innerHTML += `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label>`;
-        });
-        quiz.appendChild(div);
-    });
+// ==== إرسال الاختبار وحساب الدرجات ====
+async function submitExam(){
+    const studentName = document.getElementById("studentName").value.trim();
+    const subject = document.getElementById("subjectInput").value.trim();
+    const topic = document.getElementById("topicInput").value.trim();
+    if(!studentName || !subject || !topic){ alert("⚠️ أدخل كل المعلومات"); return; }
 
-    let btn = document.createElement("button");
-    btn.innerText = "إنهاء وارسال الإجابة";
-    btn.onclick = submitQuiz;
-    submitArea.appendChild(btn);
-}
-
-// ===== إرسال الإجابة وحساب الدرجات + التصحيح بعد انتهاء الاختبار =====
-function submitQuiz(){
-    let name = studentName.value.trim();
     let score = 0;
-
-    quiz.innerHTML = "";  // مسح الأسئلة القديمة
-    submitArea.innerHTML = "";
-
-    selected.forEach((q,i)=>{
-        let r = document.querySelector(`input[name="q${i}"]:checked`);
-        let div = document.createElement("div");
-        div.className="question";
-
-        let chosen = r ? +r.value : -1;
-        let correct = q.a;
-
-        div.innerHTML = `<h3>${q.q}</h3>`;
-        q.o.forEach((op,j)=>{
-            let color = "";
-            if(j === correct) color = "lightgreen"; // الإجابة الصحيحة
-            if(j === chosen && j !== correct) color = "red"; // الإجابة الخاطئة
-            div.innerHTML += `<div style="background:${color}; padding:5px; border-radius:5px; margin:3px;">${op}</div>`;
-        });
-
-        quiz.appendChild(div);
-
-        if(chosen === correct) score++;
+    examQuestions.forEach((q,i)=>{
+        const selected = document.querySelector(`input[name="q${i}"]:checked`);
+        if(selected && parseInt(selected.value) === q.a){
+            score++;
+        }
     });
 
-    // عرض النتيجة النهائية
-    let resultDiv = document.createElement("div");
-    resultDiv.innerHTML = `<h2>نتيجتك: ${score}/${selected.length}</h2>`;
-    quiz.appendChild(resultDiv);
-
-    // حفظ النتيجة في Firebase
-    db.collection("results").add({
-        student: name,
-        subject: currentSubject,
-        topic: currentTopic,
-        score: score,
-        total: selected.length,
-        date: new Date()
-    }).then(()=>console.log("تم حفظ النتيجة")).catch(err=>console.log(err));
-}
-
-// ===== خلط الأسئلة =====
-function shuffleArray(arr){
-    for(let i=arr.length-1;i>0;i--){
-        let j=Math.floor(Math.random()*(i+1));
-        [arr[i],arr[j]]=[arr[j],arr[i]];
+    try{
+        await db.collection("results").add({
+            student: studentName,
+            subject: subject,
+            topic: topic,
+            score: score,
+            total: examQuestions.length,
+            submittedAt: new Date()
+        });
+        document.getElementById("resultMsg").innerText = `✅ تم إرسال الاختبار. درجتك: ${score} / ${examQuestions.length}`;
+        document.getElementById("submitBtn").style.display = "none";
+    } catch(err){
+        alert("❌ حدث خطأ أثناء إرسال النتائج: " + err.message);
     }
 }
-
-// تحميل المواد عند فتح الصفحة
-loadSubjects();
 </script>
 
 </body>
