@@ -21,7 +21,7 @@ body{
     margin-top:20px;
 }
 h1,h2,h3{color:#ffdd57;}
-input,button{
+input,button,select{
     padding:10px;
     border-radius:8px;
     border:none;
@@ -48,6 +48,10 @@ label{
     cursor:pointer;
 }
 #submitArea{margin-top:20px;}
+.message{
+    color:#f1c40f;
+    font-weight:bold;
+}
 </style>
 </head>
 <body>
@@ -61,7 +65,8 @@ label{
 </select>
 <select id="topicSelect">
     <option value="">اختر الموضوع</option>
-</select><br><br>
+</select><br>
+<span id="message" class="message"></span><br>
 <button onclick="loadQuiz()">ابدأ الاختبار</button>
 
 <div id="quiz"></div>
@@ -86,13 +91,26 @@ let selected = [];
 let currentSubject = "";
 let currentTopic = "";
 
-// ===== تحميل المواد والمواضيع تلقائياً من Firestore =====
+// ===== عناصر HTML =====
+const subjectSelect = document.getElementById("subjectSelect");
+const topicSelect = document.getElementById("topicSelect");
+const message = document.getElementById("message");
+const quiz = document.getElementById("quiz");
+const submitArea = document.getElementById("submitArea");
+const studentName = document.getElementById("studentName");
+
+// ===== تحميل المواد تلقائياً =====
 function loadSubjects(){
     db.collection("exams").get().then(snap=>{
         let subjects = new Set();
         snap.forEach(doc=>{
             subjects.add(doc.data().subject);
         });
+        if(subjects.size===0){
+            message.innerText = "⚠️ لا توجد مواد متاحة حالياً";
+            return;
+        }
+        message.innerText = "";
         subjects.forEach(s=>{
             let opt = document.createElement("option");
             opt.value = s; opt.innerText = s;
@@ -106,6 +124,11 @@ subjectSelect.addEventListener("change", ()=>{
     topicSelect.innerHTML = '<option value="">اختر الموضوع</option>';
     if(!s) return;
     db.collection("exams").where("subject","==",s).get().then(snap=>{
+        if(snap.empty){
+            message.innerText = "⚠️ لا توجد موضوعات لهذه المادة";
+            return;
+        }
+        message.innerText = "";
         snap.forEach(doc=>{
             let t = doc.data().topic;
             let opt = document.createElement("option");
@@ -154,16 +177,41 @@ function renderQuiz(){
     submitArea.appendChild(btn);
 }
 
-// ===== إرسال الإجابة وحساب الدرجات =====
+// ===== إرسال الإجابة وحساب الدرجات + التصحيح بعد انتهاء الاختبار =====
 function submitQuiz(){
     let name = studentName.value.trim();
     let score = 0;
 
+    quiz.innerHTML = "";  // مسح الأسئلة القديمة
+    submitArea.innerHTML = "";
+
     selected.forEach((q,i)=>{
         let r = document.querySelector(`input[name="q${i}"]:checked`);
-        if(r && +r.value === q.a) score++;
+        let div = document.createElement("div");
+        div.className="question";
+
+        let chosen = r ? +r.value : -1;
+        let correct = q.a;
+
+        div.innerHTML = `<h3>${q.q}</h3>`;
+        q.o.forEach((op,j)=>{
+            let color = "";
+            if(j === correct) color = "lightgreen"; // الإجابة الصحيحة
+            if(j === chosen && j !== correct) color = "red"; // الإجابة الخاطئة
+            div.innerHTML += `<div style="background:${color}; padding:5px; border-radius:5px; margin:3px;">${op}</div>`;
+        });
+
+        quiz.appendChild(div);
+
+        if(chosen === correct) score++;
     });
 
+    // عرض النتيجة النهائية
+    let resultDiv = document.createElement("div");
+    resultDiv.innerHTML = `<h2>نتيجتك: ${score}/${selected.length}</h2>`;
+    quiz.appendChild(resultDiv);
+
+    // حفظ النتيجة في Firebase
     db.collection("results").add({
         student: name,
         subject: currentSubject,
@@ -171,12 +219,7 @@ function submitQuiz(){
         score: score,
         total: selected.length,
         date: new Date()
-    }).then(()=>{
-        alert(`تم إرسال الإجابة! نتيجتك: ${score}/${selected.length}`);
-        location.reload();
-    }).catch(err=>{
-        alert("حدث خطأ: "+err);
-    });
+    }).then(()=>console.log("تم حفظ النتيجة")).catch(err=>console.log(err));
 }
 
 // ===== خلط الأسئلة =====
