@@ -36,7 +36,7 @@ button:hover{background:#f1c40f;}
     border-radius:8px;
     margin:10px 0;
 }
-table{
+table,ul{
     width:100%;
     border-collapse:collapse;
 }
@@ -45,6 +45,8 @@ th,td{
     padding:8px;
     text-align:center;
 }
+ul{list-style:none; padding:0;}
+li{background:#34495e; margin:5px 0; padding:8px; border-radius:5px;}
 
 /* CSS للطباعة */
 @media print {
@@ -52,7 +54,7 @@ th,td{
     body { background:#fff; color:#000; }
     .container { background:#fff; width:100%; }
     .question { background:#eee; color:#000; }
-    td,th { background:#eee; color:#000; border:1px solid #000; }
+    td,th,li { background:#eee; color:#000; border:1px solid #000; }
 }
 </style>
 </head>
@@ -60,6 +62,11 @@ th,td{
 
 <div class="container">
 <h1>نظام إدارة الاختبارات – المعلم</h1>
+
+<h3>المواضيع المنشورة</h3>
+<ul id="topicsList"></ul>
+
+<hr>
 
 <input id="subjectInput" placeholder="اسم المادة">
 <input id="topicInput" placeholder="اسم الموضوع"><br>
@@ -109,8 +116,8 @@ th,td{
 </table>
 
 <button onclick="loadResults()">📥 تحميل النتائج</button>
-<button onclick="deleteResults()" style="background:#c0392b;color:#fff">
-🗑️ مسح كشف هذا الاختبار
+<button onclick="archiveAndDeleteResults()" style="background:#8e44ad;color:#fff">
+📦 أرشفة ومسح كشف الطلاب
 </button>
 <button onclick="window.print()">🖨️ طباعة الكشف</button>
 
@@ -133,6 +140,7 @@ let questions = [];
 let editIndex = null;
 const questionsTable = document.getElementById("questionsTable");
 const resultsTable = document.getElementById("resultsTable");
+const topicsList = document.getElementById("topicsList");
 
 // ==== إدارة الأسئلة ====
 function addQuestion(){
@@ -193,18 +201,39 @@ function importQuestions(e){
 
 // ==== نشر الموضوع ====
 function publishTopic(){
-    let subject=subjectInput.value.trim();
-    let topic=topicInput.value.trim();
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
     if(!subject || !topic){ alert("⚠️ أدخل اسم المادة والموضوع"); return; }
+
     db.collection("topics").doc(subject+"_"+topic).set({
         subject, topic, createdAt:new Date()
-    }).then(()=>alert("✔️ تم نشر الموضوع بنجاح!"));
+    }).then(()=>{
+        alert("✔️ تم نشر الموضوع بنجاح!");
+        addTopicToList(subject, topic);
+    })
+    .catch(err=>alert("حدث خطأ أثناء نشر الموضوع: "+err));
+}
+
+// إضافة الموضوع للقائمة مباشرة
+function addTopicToList(subject, topic){
+    let item = document.createElement("li");
+    item.innerText = subject + " - " + topic;
+    topicsList.appendChild(item);
+}
+
+// تحميل المواضيع عند فتح الصفحة
+async function loadTopics(){
+    const snapshot = await db.collection("topics").orderBy("createdAt").get();
+    snapshot.forEach(doc=>{
+        const data = doc.data();
+        addTopicToList(data.subject, data.topic);
+    });
 }
 
 // ==== نشر الاختبار ====
 function publishExam(){
-    let subject=subjectInput.value.trim();
-    let topic=topicInput.value.trim();
+    let subject = subjectInput.value.trim();
+    let topic = topicInput.value.trim();
     if(!subject||!topic||questions.length===0){
         alert("⚠️ البيانات ناقصة أو لا توجد أسئلة"); return;
     }
@@ -237,38 +266,59 @@ function loadResults(){
       });
 }
 
-// ==== مسح كشف الطلاب (الإضافة الوحيدة) ====
-async function deleteResults(){
+// ==== أرشفة ومسح كشف الطلاب ====
+async function archiveAndDeleteResults() {
     let subject = subjectInput.value.trim();
     let topic = topicInput.value.trim();
 
-    if(!subject || !topic){
+    if (!subject || !topic) {
         alert("⚠️ أدخل اسم المادة والموضوع أولاً");
         return;
     }
 
-    const ok = confirm("⚠️ سيتم حذف كشف نتائج الطلاب لهذا الاختبار فقط.\nهل أنت متأكد؟");
-    if(!ok) return;
+    const ok = confirm(
+        "⚠️ سيتم أرشفة جميع نتائج الطلاب لهذا الاختبار ثم حذفها من لوحة المعلم.\nهل أنت متأكد؟"
+    );
+    if (!ok) return;
 
-    const snapshot = await db.collection("results")
-        .where("subject","==",subject)
-        .where("topic","==",topic)
-        .get();
+    try {
+        const snapshot = await db.collection("results")
+            .where("subject", "==", subject)
+            .where("topic", "==", topic)
+            .get();
 
-    if(snapshot.empty){
-        alert("لا توجد نتائج لحذفها");
-        return;
+        if (snapshot.empty) {
+            alert("لا توجد نتائج لأرشفتها أو حذفها");
+            return;
+        }
+
+        const batch = db.batch();
+        const archiveBatch = db.batch();
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            archiveBatch.set(db.collection("archive_results").doc(doc.id), {
+                ...data,
+                archivedAt: new Date()
+            });
+            batch.delete(doc.ref);
+        });
+
+        await archiveBatch.commit();
+        await batch.commit();
+
+        resultsTable.innerHTML = "<tr><th>الطالب</th><th>الدرجة</th></tr>";
+
+        alert("✅ تم أرشفة النتائج ومسحها من لوحة المعلم بنجاح");
+
+    } catch (err) {
+        alert("❌ حدث خطأ أثناء الأرشفة والحذف: " + err.message);
     }
-
-    const batch = db.batch();
-    snapshot.forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-
-    resultsTable.innerHTML="<tr><th>الطالب</th><th>الدرجة</th></tr>";
-    alert("✅ تم مسح كشف الطلاب بنجاح");
 }
 
+// ==== بدء الصفحة ====
 renderQuestions();
+loadTopics();
 </script>
 
 </body>
